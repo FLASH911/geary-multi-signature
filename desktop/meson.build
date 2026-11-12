@@ -5,6 +5,7 @@
 desktop_output = []
 desktop_conf = configuration_data()
 desktop_conf.set('appid', geary_id)
+desktop_conf.set('name', 'Geary' + name_suffix)
 
 desktop_file = i18n.merge_file(
   input: configure_file(

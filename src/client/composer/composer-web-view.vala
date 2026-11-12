@@ -390,9 +390,7 @@ public class Composer.WebView : Components.WebView {
         this.call_void.begin(Util.JS.callable("insertUnorderedList"), null);
     }
 
-    /**
-     * Updates the signature block if it has not been deleted.
-     */
+    /** Updates the signature block, recreating it if the user deleted it. */
     public new void update_signature(string signature) {
         this.call_void.begin(
             Util.JS.callable("updateSignature").string(signature), null

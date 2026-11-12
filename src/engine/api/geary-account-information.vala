@@ -6,6 +6,22 @@
  * (version 2.1 or later). See the COPYING file in this distribution.
  */
 
+/**
+ * A named signature that can be selected for an account or one of its aliases.
+ */
+public class Geary.AccountSignature : GLib.Object {
+
+    public string name { get; set; default = ""; }
+    public string html { get; set; default = ""; }
+
+    public AccountSignature(string name, string html) {
+        this.name = name;
+        this.html = html;
+    }
+
+}
+
+
 public class Geary.AccountInformation : BaseObject {
 
 
@@ -167,6 +183,30 @@ public class Geary.AccountInformation : BaseObject {
     public string signature { get; set; default = ""; }
 
     /**
+     * Named signatures available to this account.
+     *
+     * The legacy {@link signature} property remains the account's default
+     * signature and is kept in sync with {@link default_signature_name}.
+     */
+    public Gee.List<AccountSignature> signatures {
+        owned get { return this.signature_list.read_only_view; }
+    }
+
+    /** Name of the signature used when no alias-specific signature is set. */
+    public string default_signature_name { get; set; default = ""; }
+
+    /**
+     * Alias address to signature name mappings.
+     *
+     * A missing address uses the account default. An empty name explicitly
+     * disables a signature for that alias.
+     */
+    public Gee.Map<string,string> alias_signatures {
+        get; private set;
+        default = new Gee.HashMap<string,string>();
+    }
+
+    /**
      * Location of the account's config directory.
      *
      * This directory is used to store small, per-account
@@ -187,6 +227,9 @@ public class Geary.AccountInformation : BaseObject {
             (k) => GLib.int_hash(k),
             (k1, k2) => (Folder.SpecialUse) k1 == (Folder.SpecialUse) k2
         );
+
+    private Gee.ArrayList<AccountSignature> signature_list =
+        new Gee.ArrayList<AccountSignature>();
 
     private Gee.List<Geary.RFC822.MailboxAddress> mailboxes {
         get; private set;
@@ -254,6 +297,7 @@ public class Geary.AccountInformation : BaseObject {
             other.mediator,
             other.primary_mailbox
         );
+        this.ordinal = other.ordinal;
         this.service_label = other.service_label;
         this.label = other.label;
         if (other.mailboxes.size > 1) {
@@ -266,6 +310,13 @@ public class Geary.AccountInformation : BaseObject {
         this.save_drafts = other.save_drafts;
         this.use_signature = other.use_signature;
         this.signature = other.signature;
+        this.default_signature_name = other.default_signature_name;
+        foreach (AccountSignature signature in other.signatures) {
+            this.signature_list.add(
+                new AccountSignature(signature.name, signature.html)
+            );
+        }
+        this.alias_signatures.set_all(other.alias_signatures);
 
         this.incoming = new ServiceInformation.copy(other.incoming);
         this.outgoing = new ServiceInformation.copy(other.outgoing);
@@ -344,7 +395,176 @@ public class Geary.AccountInformation : BaseObject {
      * Replace a mailbox at the specified index.
      */
     public void replace_sender(int index, Geary.RFC822.MailboxAddress mailbox) {
+        Geary.RFC822.MailboxAddress old = this.mailboxes.get(index);
+        string? alias_signature = this.alias_signatures.get(
+            old.address.down()
+        );
         this.mailboxes.set(index, mailbox);
+        this.alias_signatures.unset(old.address.down());
+        if (alias_signature != null) {
+            this.alias_signatures.set(
+                mailbox.address.down(), alias_signature
+            );
+        }
+    }
+
+    /**
+     * Finds a named signature, ignoring surrounding whitespace in its name.
+     */
+    public AccountSignature? find_signature(string name) {
+        string wanted = name.strip();
+        foreach (AccountSignature signature in this.signature_list) {
+            if (signature.name.strip() == wanted) {
+                return signature;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Adds a named signature, making the name unique if necessary.
+     */
+    public AccountSignature add_signature(string name, string html = "") {
+        string unique = name.strip();
+        if (unique == "") {
+            unique = "Signature %d".printf(this.signature_list.size + 1);
+        }
+        string base_name = unique;
+        int suffix = 2;
+        while (find_signature(unique) != null) {
+            unique = "%s %d".printf(base_name, suffix++);
+        }
+        var signature = new AccountSignature(unique, html);
+        this.signature_list.add(signature);
+        return signature;
+    }
+
+    /**
+     * Updates the HTML of a named signature.
+     */
+    public bool set_signature_html(string name, string html) {
+        AccountSignature? signature = find_signature(name);
+        if (signature == null) {
+            return false;
+        }
+        signature.html = html;
+        sync_default_signature();
+        return true;
+    }
+
+    /**
+     * Selects the account default, or disables the default with null/empty.
+     */
+    public void set_default_signature(string? name) {
+        this.default_signature_name = name?.strip() ?? "";
+        sync_default_signature();
+    }
+
+    /**
+     * Removes a named signature and any alias mappings that refer to it.
+     */
+    public bool remove_signature(string name) {
+        AccountSignature? signature = find_signature(name);
+        if (signature == null || this.signature_list.size <= 1) {
+            return false;
+        }
+
+        string removed_name = signature.name;
+        this.signature_list.remove(signature);
+        if (this.default_signature_name.strip() == removed_name.strip()) {
+            this.default_signature_name = "";
+        }
+
+        var stale = new Gee.ArrayList<string>();
+        foreach (var entry in this.alias_signatures.entries) {
+            if (entry.value.strip() == removed_name.strip()) {
+                stale.add(entry.key);
+            }
+        }
+        foreach (string address in stale) {
+            this.alias_signatures.unset(address);
+        }
+        sync_default_signature();
+        return true;
+    }
+
+    /**
+     * Sets an alias-specific signature.
+     *
+     * A null name means the account default, while an empty name disables a
+     * signature for this address.
+     */
+    public void set_alias_signature(string address,
+                                    string? signature_name) {
+        string key = address.down();
+        if (signature_name == null) {
+            this.alias_signatures.unset(key);
+        } else {
+            this.alias_signatures.set(key, signature_name.strip());
+        }
+    }
+
+    /**
+     * Returns the signature body for a sender address.
+     */
+    public string signature_for_mailbox(Geary.RFC822.MailboxAddress mailbox) {
+        string address = mailbox.address.down();
+        if (this.alias_signatures.has_key(address)) {
+            string alias_name = this.alias_signatures.get(address) ?? "";
+            if (alias_name == "") {
+                return "";
+            }
+            AccountSignature? alias_signature = find_signature(alias_name);
+            if (alias_signature != null) {
+                return alias_signature.html;
+            }
+        }
+
+        AccountSignature? default_signature =
+            find_signature(this.default_signature_name);
+        if (default_signature != null) {
+            return default_signature.html;
+        }
+
+        // Configurations from before multiple signatures stored one signature
+        // and a boolean saying whether it should be inserted.
+        return this.use_signature ? this.signature : "";
+    }
+
+    /**
+     * Returns the configured signature name for a sender address.
+     *
+     * Null means the legacy body-only signature is in use, while an empty
+     * string explicitly means no signature.
+     */
+    public string? signature_name_for_mailbox(
+        Geary.RFC822.MailboxAddress mailbox
+    ) {
+        string address = mailbox.address.down();
+        if (this.alias_signatures.has_key(address)) {
+            string alias_name = this.alias_signatures.get(address) ?? "";
+            if (alias_name == "" || find_signature(alias_name) != null) {
+                return alias_name;
+            }
+        }
+        AccountSignature? default_signature =
+            find_signature(this.default_signature_name);
+        if (default_signature != null) {
+            return default_signature.name;
+        }
+        return null;
+    }
+
+    private void sync_default_signature() {
+        AccountSignature? signature =
+            find_signature(this.default_signature_name);
+        if (signature != null) {
+            this.signature = signature.html;
+            this.use_signature = true;
+        } else {
+            this.signature = "";
+            this.use_signature = false;
+        }
     }
 
     /**
@@ -518,6 +738,19 @@ public class Geary.AccountInformation : BaseObject {
                 this.save_drafts == other.save_drafts &&
                 this.use_signature == other.use_signature &&
                 this.signature == other.signature &&
+                this.default_signature_name == other.default_signature_name &&
+                this.signatures.size == other.signatures.size &&
+                traverse(this.signatures).all(
+                    signature => {
+                        AccountSignature? candidate =
+                            other.find_signature(signature.name);
+                        return candidate != null &&
+                            candidate.html == signature.html;
+                    }
+                ) &&
+                this.alias_signatures.size ==
+                    other.alias_signatures.size &&
+                this.alias_signatures.has_all(other.alias_signatures) &&
                 this.incoming.equal_to(other.incoming) &&
                 this.outgoing.equal_to(other.outgoing) &&
                 this.special_use_paths.size == other.special_use_paths.size &&

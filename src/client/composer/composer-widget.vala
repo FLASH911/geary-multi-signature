@@ -196,9 +196,11 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
     private const string ACTION_CUT = "cut";
     private const string ACTION_DETACH = "detach";
     private const string ACTION_DISCARD = "discard";
+    private const string ACTION_INSERT_SIGNATURE = "insert-signature";
     private const string ACTION_PASTE = "paste";
     private const string ACTION_SEND = "send";
     private const string ACTION_SHOW_EXTENDED_HEADERS = "show-extended-headers";
+    private const string NO_SIGNATURE_ID = "__none__";
 
     private const ActionEntry[] ACTIONS = {
         { Action.Edit.COPY,                on_copy                          },
@@ -211,6 +213,7 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
         { ACTION_CUT,                      on_cut                           },
         { ACTION_DETACH,                   on_detach                        },
         { ACTION_DISCARD,                  on_discard                       },
+        { ACTION_INSERT_SIGNATURE,          on_insert_signature, "s"         },
         { ACTION_PASTE,                    on_paste                         },
         { ACTION_SEND,                     on_send                          },
         { ACTION_SHOW_EXTENDED_HEADERS,    on_toggle_action, null, "false",
@@ -371,10 +374,14 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
     [GtkChild] private unowned Gtk.ToggleButton show_extended_headers;
 
     private Gee.ArrayList<FromAddressMap> from_list = new Gee.ArrayList<FromAddressMap>();
+    private GLib.Menu signature_section = new GLib.Menu();
+    private bool updating_signature_choice = false;
+    private Geary.AccountInformation? watched_signature_account = null;
 
     private Gtk.SizeGroup header_labels_group = new Gtk.SizeGroup(HORIZONTAL);
 
     private HeaderRow<Gtk.ComboBoxText> from_row;
+    private HeaderRow<Gtk.ComboBoxText> signature_row;
     private HeaderRow<EmailEntry> to_row;
     private HeaderRow<EmailEntry> cc_row;
     private HeaderRow<EmailEntry> bcc_row;
@@ -488,6 +495,15 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
         this.header_labels_group.add_widget(this.from_row.label);
         this.filled_headers.add(this.from_row);
 
+        this.signature_row = new HeaderRow<Gtk.ComboBoxText>(
+            _("Si_gnature"), new Gtk.ComboBoxText()
+        );
+        this.signature_row.value.changed.connect(
+            on_signature_choice_changed
+        );
+        this.header_labels_group.add_widget(this.signature_row.label);
+        this.filled_headers.add(this.signature_row);
+
         this.to_row = new EntryHeaderRow<EmailEntry>(
             /// Translators: Label for composer To address entry
             _("_To"), new EmailEntry(this)
@@ -540,6 +556,7 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
         update_subject_spell_checker();
 
         this.editor = new Editor(config);
+        this.editor.insert_menu_section(this.signature_section);
         this.editor.insert_image.connect(
             (from_clipboard) => {
                 if (from_clipboard) {
@@ -573,6 +590,9 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
         this.from = new Geary.RFC822.MailboxAddresses.single(
             this.sender_context.account.information.primary_mailbox
         );
+        this.watch_signature_account(
+            this.sender_context.account.information
+        );
 
         this.draft_timer = new Geary.TimeoutManager.seconds(
             10, on_draft_timeout
@@ -589,12 +609,18 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
         // prefix for the headerbar.
         insert_action_group(Action.Window.GROUP_NAME, this.actions);
         this.header.insert_action_group("cmh", this.actions);
+        update_signature_menu();
         validate_send_button();
 
         load_entry_completions();
     }
 
     ~Widget() {
+        if (this.watched_signature_account != null) {
+            this.watched_signature_account.changed.disconnect(
+                on_signature_account_changed
+            );
+        }
         base_unref();
     }
 
@@ -2319,32 +2345,62 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
 
             if (selected.account != this.sender_context) {
                 this.sender_context = selected.account;
-                this.update_signature.begin(null);
+                this.watch_signature_account(
+                    this.sender_context.account.information
+                );
                 load_entry_completions();
 
                 this.reopen_draft_manager.begin();
             }
+            // An alias belongs to the same account, so changing only its
+            // address does not change sender_context. Refresh in both cases.
+            this.update_signature_menu();
+            this.update_signature.begin(null);
         }
+    }
+
+    private void watch_signature_account(Geary.AccountInformation info) {
+        if (this.watched_signature_account != null) {
+            this.watched_signature_account.changed.disconnect(
+                on_signature_account_changed
+            );
+        }
+        this.watched_signature_account = info;
+        info.changed.connect(on_signature_account_changed);
+    }
+
+    private void on_signature_account_changed() {
+        this.update_signature_menu();
+        this.update_signature.begin(null);
     }
 
     private async void update_signature(Cancellable? cancellable = null) {
         string sig = "";
         Geary.AccountInformation account =
             this.sender_context.account.information;
-        if (account.use_signature) {
-            sig = account.signature;
-            if (Geary.String.is_empty_or_whitespace(sig)) {
-                // No signature is specified in the settings, so use
-                // ~/.signature
-                File signature_file = File.new_for_path(Environment.get_home_dir()).get_child(".signature");
-                try {
-                    uint8[] data;
-                    yield signature_file.load_contents_async(cancellable, out data, null);
-                    sig = (string) data;
-                } catch (Error error) {
-                    if (!(error is IOError.NOT_FOUND)) {
-                        debug("Error reading signature file %s: %s", signature_file.get_path(), error.message);
-                    }
+        Geary.RFC822.MailboxAddress? sender = this.from.get(0);
+        bool alias_configured =
+            sender != null &&
+            account.alias_signatures.has_key(sender.address.down());
+        if (sender != null) {
+            sig = account.signature_for_mailbox(sender);
+            this.update_signature_row(
+                account.signature_name_for_mailbox(sender)
+            );
+        }
+        if (!alias_configured &&
+            account.use_signature &&
+            Geary.String.is_empty_or_whitespace(sig)) {
+            // No signature is specified in the settings, so use
+            // ~/.signature
+            File signature_file = File.new_for_path(Environment.get_home_dir()).get_child(".signature");
+            try {
+                uint8[] data;
+                yield signature_file.load_contents_async(cancellable, out data, null);
+                sig = (string) data;
+            } catch (Error error) {
+                if (!(error is IOError.NOT_FOUND)) {
+                    debug("Error reading signature file %s: %s", signature_file.get_path(), error.message);
                 }
             }
         }
@@ -2359,6 +2415,89 @@ public class Composer.Widget : Gtk.EventBox, Geary.BaseInterface {
             sig = "";
         }
         this.editor.body.update_signature(Geary.HTML.smart_escape(sig));
+    }
+
+    private void update_signature_row(string? selected) {
+        this.updating_signature_choice = true;
+        this.signature_row.value.remove_all();
+        this.signature_row.value.append(
+            NO_SIGNATURE_ID, _("No Signature")
+        );
+        Geary.AccountInformation info =
+            this.sender_context.account.information;
+        foreach (Geary.AccountSignature signature in info.signatures) {
+            this.signature_row.value.append(
+                signature.name, signature.name
+            );
+        }
+        this.signature_row.value.set_active_id(
+            selected == null || selected == ""
+                ? NO_SIGNATURE_ID
+                : selected
+        );
+        this.updating_signature_choice = false;
+        this.signature_row.visible =
+            !info.signatures.is_empty ||
+            info.alias_signatures.size > 0;
+    }
+
+    private void on_signature_choice_changed() {
+        if (this.updating_signature_choice) {
+            return;
+        }
+        string? selected = this.signature_row.value.get_active_id();
+        Geary.AccountInformation info =
+            this.sender_context.account.information;
+        Geary.AccountSignature? signature =
+            selected == null || selected == NO_SIGNATURE_ID
+                ? null
+                : info.find_signature(selected);
+        this.editor.body.update_signature(
+            signature != null
+                ? Geary.HTML.smart_escape(signature.html)
+                : ""
+        );
+    }
+
+    /** Rebuilds the composer's signature chooser for the current account. */
+    private void update_signature_menu() {
+        this.signature_section.remove_all();
+        Geary.AccountInformation info =
+            this.sender_context.account.information;
+        foreach (Geary.AccountSignature signature in info.signatures) {
+            var item = new GLib.MenuItem(
+                signature.name.replace("_", "__"), null
+            );
+            item.set_action_and_target_value(
+                Action.Window.GROUP_NAME + "." + ACTION_INSERT_SIGNATURE,
+                new Variant.string(signature.name)
+            );
+            this.signature_section.append_item(item);
+        }
+        var none = new GLib.MenuItem(_("No Signature"), null);
+        none.set_action_and_target_value(
+            Action.Window.GROUP_NAME + "." + ACTION_INSERT_SIGNATURE,
+            new Variant.string("")
+        );
+        this.signature_section.append_item(none);
+    }
+
+    private void on_insert_signature(SimpleAction action, Variant? param) {
+        string name = param != null ? param.get_string() : "";
+        Geary.AccountInformation info =
+            this.sender_context.account.information;
+        Geary.AccountSignature? signature =
+            name == "" ? null : info.find_signature(name);
+        this.updating_signature_choice = true;
+        this.signature_row.value.set_active_id(
+            signature != null ? signature.name : NO_SIGNATURE_ID
+        );
+        this.updating_signature_choice = false;
+        this.editor.body.update_signature(
+            signature != null
+                ? Geary.HTML.smart_escape(signature.html)
+                : ""
+        );
     }
 
     private void update_subject_spell_checker() {

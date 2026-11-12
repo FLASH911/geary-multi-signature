@@ -336,7 +336,13 @@ public class Application.Client : Gtk.Application {
     public override void startup() {
         Environment.set_application_name(NAME);
         Environment.set_prgname(Config.APP_ID);
-        Util.I18n.init(Config.GETTEXT_PACKAGE, this.binary);
+        Util.I18n.init(
+            Config.GETTEXT_PACKAGE,
+            this.binary,
+            Config.UI_LOCALE == ""
+                ? Util.I18n.SYSTEM_LOCALE
+                : Config.UI_LOCALE
+        );
         Util.Date.init();
 
         Configuration.init(this.is_installed, Config.GSETTINGS_DIR);

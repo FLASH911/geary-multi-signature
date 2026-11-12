@@ -18,6 +18,7 @@ endif
 
 if profile == 'development'
   appid_suffix = '.Devel'
+  name_suffix = ' (Multi-signature)'
 elif profile == 'beta'
   appid_suffix = '.Beta'
   name_suffix = ' (Beta)'

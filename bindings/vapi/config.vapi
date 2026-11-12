@@ -17,6 +17,7 @@ namespace Config
     public const string ISO_CODE_639_XML;
     public const string LANGUAGE_SUPPORT_DIRECTORY;
     public const string NAME_SUFFIX;
+    public const string UI_LOCALE;
     public const string PLUGINS_DIR;
     public const string PROFILE;
     public const string REVNO;

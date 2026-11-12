@@ -991,6 +991,86 @@ public interface Accounts.ServiceConfig : GLib.Object {
 }
 
 
+private const string SIGNATURES_KEY = "signatures";
+private const string SIGNATURE_DEFAULT_KEY = "default_signature";
+private const string SIGNATURE_ALIASES_KEY = "alias_signatures";
+private const string SIGNATURE_HTML_KEY = "signature_html_%d";
+
+/**
+ * Loads named signatures and alias assignments, migrating the single legacy
+ * signature into the same model when the new keys are not present yet.
+ */
+private void load_signatures(Geary.ConfigFile.Group config,
+                             Geary.AccountInformation account) {
+    Gee.List<string> names = config.get_string_list(SIGNATURES_KEY);
+    for (int i = 0; i < names.size; i++) {
+        account.add_signature(
+            names[i],
+            config.get_string(SIGNATURE_HTML_KEY.printf(i), "") ?? ""
+        );
+    }
+
+    if (account.signatures.is_empty &&
+        !Geary.String.is_empty_or_whitespace(account.signature)) {
+        account.add_signature("Default", account.signature);
+    }
+
+    string default_name = config.get_string(SIGNATURE_DEFAULT_KEY, "") ?? "";
+    if (default_name == "" && account.use_signature &&
+        !account.signatures.is_empty) {
+        default_name = account.signatures.get(0).name;
+    }
+    account.default_signature_name = default_name;
+
+    Geary.AccountSignature? default_signature =
+        account.find_signature(default_name);
+    if (default_signature != null) {
+        account.signature = default_signature.html;
+        account.use_signature = true;
+    } else {
+        account.signature = "";
+        account.use_signature = false;
+    }
+
+    foreach (string mapping in config.get_string_list(SIGNATURE_ALIASES_KEY)) {
+        string[] parts = mapping.split("\t", 2);
+        if (parts.length == 2 && parts[0] != "") {
+            account.set_alias_signature(parts[0], parts[1]);
+        }
+    }
+}
+
+/** Saves named signatures and their alias assignments. */
+private void save_signatures(Geary.ConfigFile.Group config,
+                             Geary.AccountInformation account) {
+    // Keep the old single-signature configs usable in both directions:
+    // serialise the legacy body as the first named signature as well.
+    if (account.signatures.is_empty &&
+        !Geary.String.is_empty_or_whitespace(account.signature)) {
+        account.add_signature("Default", account.signature);
+    }
+    var names = new Gee.ArrayList<string>();
+    for (int i = 0; i < account.signatures.size; i++) {
+        Geary.AccountSignature signature = account.signatures.get(i);
+        names.add(signature.name);
+        config.set_string(SIGNATURE_HTML_KEY.printf(i), signature.html);
+    }
+    config.set_string_list(SIGNATURES_KEY, names);
+    config.set_string(SIGNATURE_DEFAULT_KEY, account.default_signature_name);
+
+    var addresses = new Gee.ArrayList<string>();
+    addresses.add_all(account.alias_signatures.keys);
+    addresses.sort((a, b) => a.collate(b));
+    var mappings = new Gee.ArrayList<string>();
+    foreach (string address in addresses) {
+        mappings.add(
+            "%s\t%s".printf(address, account.alias_signatures.get(address) ?? "")
+        );
+    }
+    config.set_string_list(SIGNATURE_ALIASES_KEY, mappings);
+}
+
+
 public errordomain Accounts.ConfigError {
     IO,
     MANAGEMENT,
@@ -1102,6 +1182,7 @@ public class Accounts.AccountConfigV1 : AccountConfig, GLib.Object {
         account.signature = account_config.get_string(
             ACCOUNT_SIG, account.signature
         );
+        load_signatures(account_config, account);
         foreach (Geary.RFC822.MailboxAddress sender in senders) {
             account.append_sender(sender);
         }
@@ -1147,6 +1228,7 @@ public class Accounts.AccountConfigV1 : AccountConfig, GLib.Object {
         account_config.set_bool(ACCOUNT_SAVE_SENT, account.save_sent);
         account_config.set_bool(ACCOUNT_USE_SIG, account.use_signature);
         account_config.set_string(ACCOUNT_SIG, account.signature);
+        save_signatures(account_config, account);
         account_config.set_string_list(
             ACCOUNT_SENDERS,
             Geary.traverse(account.sender_mailboxes)
@@ -1298,6 +1380,7 @@ public class Accounts.AccountConfigLegacy : AccountConfig, GLib.Object {
         info.signature = config.get_string(
             EMAIL_SIGNATURE_KEY, info.signature
         );
+        load_signatures(config, info);
 
         info.set_folder_steps_for_use(
             DRAFTS, config.get_string_list(DRAFTS_FOLDER_KEY)
@@ -1334,17 +1417,16 @@ public class Accounts.AccountConfigLegacy : AccountConfig, GLib.Object {
         config.set_bool(SAVE_SENT_MAIL_KEY, info.save_sent);
         config.set_bool(USE_EMAIL_SIGNATURE_KEY, info.use_signature);
         config.set_string(EMAIL_SIGNATURE_KEY, info.signature);
+        save_signatures(config, info);
         if (info.has_sender_aliases) {
-            Gee.List<Geary.RFC822.MailboxAddress> alts = info.sender_mailboxes;
-            // Don't include the primary in the list
-            alts.remove_at(0);
-
-            config.set_string_list(
-                ALTERNATE_EMAILS_KEY,
-                Geary.traverse(alts)
-                .map<string>((alt) => alt.to_rfc822_string())
-                .to_array_list()
-            );
+            Gee.List<Geary.RFC822.MailboxAddress> senders =
+                info.sender_mailboxes;
+            var alts = new Gee.ArrayList<string>();
+            // Don't include the primary address in the alternates list.
+            for (int i = 1; i < senders.size; i++) {
+                alts.add(senders.get(i).to_rfc822_string());
+            }
+            config.set_string_list(ALTERNATE_EMAILS_KEY, alts);
         }
 
         Gee.List<string> empty = new Gee.ArrayList<string>();

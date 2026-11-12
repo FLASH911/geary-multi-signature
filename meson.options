@@ -36,6 +36,12 @@ option(
   value: 'auto',
   description: 'Build API documentation'
 )
+option(
+  'ui_locale',
+  type: 'string',
+  value: '',
+  description: 'Force a UI locale for this build, for example ru_RU.UTF-8'
+)
 
 #
 # Development options

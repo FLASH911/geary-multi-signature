@@ -8,6 +8,10 @@ Geary is an email application built around conversations, for the
 GNOME desktop. It allows you to read, find and send email with a
 straight-forward, modern interface.
 
+This local fork adds named multiple signatures and per-alias signature
+selection. See [MULTI_SIGNATURES.md](./MULTI_SIGNATURES.md) for usage and
+storage details.
+
 Visit https://gitlab.gnome.org/GNOME/geary/-/wikis for more information.
 
 **GitHub users please note**: Bug reports, code contributions and

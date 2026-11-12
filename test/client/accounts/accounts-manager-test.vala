@@ -163,6 +163,16 @@ class Accounts.ManagerTest : TestCase {
         this.account.save_sent = false;
         this.account.signature = "blarg";
         this.account.use_signature = false;
+        var work = this.account.add_signature("Work", "<p>Work</p>");
+        var personal = this.account.add_signature(
+            "Personal", "<p>Personal</p>"
+        );
+        this.account.set_default_signature(work.name);
+        var alias = new Geary.RFC822.MailboxAddress(
+            "Alias", "alias@example.com"
+        );
+        this.account.append_sender(alias);
+        this.account.set_alias_signature(alias.address, personal.name);
 
         Geary.ConfigFile file =
             new Geary.ConfigFile(this.tmp.get_child("config.ini"));
@@ -185,6 +195,16 @@ class Accounts.ManagerTest : TestCase {
         this.account.save_sent = false;
         this.account.signature = "blarg";
         this.account.use_signature = false;
+        var work = this.account.add_signature("Work", "<p>Work</p>");
+        var personal = this.account.add_signature(
+            "Personal", "<p>Personal</p>"
+        );
+        this.account.set_default_signature(work.name);
+        var alias = new Geary.RFC822.MailboxAddress(
+            "Alias", "alias@example.com"
+        );
+        this.account.append_sender(alias);
+        this.account.set_alias_signature(alias.address, personal.name);
         Accounts.AccountConfigLegacy config =
             new Accounts.AccountConfigLegacy();
 

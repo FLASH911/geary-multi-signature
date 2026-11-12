@@ -47,10 +47,20 @@ internal class Accounts.EditorEditPane :
 
     [GtkChild] private unowned Gtk.ListBox senders_list;
 
-    [GtkChild] private unowned Gtk.Frame signature_frame;
+    [GtkChild] private unowned Gtk.ComboBoxText signature_chooser;
+
+    [GtkChild] private unowned Gtk.Button add_signature_button;
+
+    [GtkChild] private unowned Gtk.Button remove_signature_button;
+
+    [GtkChild] private unowned Gtk.CheckButton signature_default_button;
+
+    [GtkChild] private unowned Gtk.Box signature_preview_container;
 
     private SignatureWebView signature_preview;
     private bool signature_changed = false;
+    private bool switching_signature = false;
+    private string? active_signature_name = null;
 
     [GtkChild] private unowned Gtk.ListBox settings_list;
 
@@ -77,7 +87,15 @@ internal class Accounts.EditorEditPane :
         }
         this.senders_list.add(new AddMailboxRow());
 
+        if (account.signatures.is_empty) {
+            account.add_signature("Signature 1");
+        }
+
         this.signature_preview = new SignatureWebView(editor.application.config);
+        this.signature_preview.set_can_focus(true);
+        this.signature_preview.set_hexpand(true);
+        this.signature_preview.set_vexpand(true);
+        this.signature_preview.set_size_request(-1, 160);
         this.signature_preview.events = (
             this.signature_preview.events | Gdk.EventType.FOCUS_CHANGE
         );
@@ -91,6 +109,10 @@ internal class Accounts.EditorEditPane :
         this.signature_preview.document_modified.connect(() => {
                 this.signature_changed = true;
             });
+        this.signature_preview.button_press_event.connect(() => {
+                this.signature_preview.grab_focus();
+                return Gdk.EVENT_PROPAGATE;
+            });
         this.signature_preview.focus_out_event.connect(() => {
                 // This event will also be fired if the top-level
                 // window loses focus, e.g. if the user alt-tabs away,
@@ -98,22 +120,28 @@ internal class Accounts.EditorEditPane :
                 // view no longer the focus widget
                 if (!this.signature_preview.is_focus &&
                     this.signature_changed) {
-                    this.commands.execute.begin(
-                        new SignatureChangedCommand(
-                            this.signature_preview, account
-                        ),
-                        this.op_cancellable
-                    );
+                    this.save_active_signature.begin();
                 }
                 return Gdk.EVENT_PROPAGATE;
             });
 
         this.signature_preview.show();
-        this.signature_preview.load_html(
-            Geary.HTML.smart_escape(account.signature)
-        );
+        this.signature_preview_container.add(this.signature_preview);
 
-        this.signature_frame.add(this.signature_preview);
+        this.add_signature_button.clicked.connect(on_add_signature_clicked);
+        this.remove_signature_button.clicked.connect(
+            on_remove_signature_clicked
+        );
+        this.signature_default_button.toggled.connect(
+            on_signature_default_toggled
+        );
+        this.signature_chooser.changed.connect(
+            on_signature_chooser_changed
+        );
+        this.rebuild_signature_chooser(
+            account.find_signature(account.default_signature_name)?.name ??
+            account.signatures.get(0).name
+        );
 
         this.settings_list.set_header_func(Editor.seperator_headers);
         this.settings_list.add(new EmailPrefetchRow(this));
@@ -190,6 +218,158 @@ internal class Accounts.EditorEditPane :
             ),
             this.op_cancellable
         );
+    }
+
+    private void rebuild_signature_chooser(string preferred) {
+        this.switching_signature = true;
+        this.signature_chooser.remove_all();
+        int selected = 0;
+        for (int i = 0; i < account.signatures.size; i++) {
+            Geary.AccountSignature signature = account.signatures.get(i);
+            this.signature_chooser.append_text(signature.name);
+            if (signature.name.strip() == preferred.strip()) {
+                selected = i;
+            }
+        }
+        this.signature_chooser.set_active(selected);
+        this.switching_signature = false;
+        this.show_signature(account.signatures.get(selected));
+    }
+
+    private void show_signature(Geary.AccountSignature signature) {
+        this.active_signature_name = signature.name;
+        this.signature_changed = false;
+        this.signature_preview.load_html(
+            Geary.HTML.smart_escape(signature.html)
+        );
+        this.switching_signature = true;
+        this.signature_default_button.set_active(
+            account.default_signature_name.strip() ==
+                signature.name.strip()
+        );
+        this.switching_signature = false;
+        this.remove_signature_button.set_sensitive(
+            account.signatures.size > 1
+        );
+    }
+
+    private void on_signature_chooser_changed() {
+        if (this.switching_signature) {
+            return;
+        }
+        int index = this.signature_chooser.get_active();
+        if (index >= 0 && index < account.signatures.size) {
+            this.switch_signature.begin(
+                account.signatures.get(index).name
+            );
+        }
+    }
+
+    private async void switch_signature(string name) {
+        yield this.save_active_signature();
+        Geary.AccountSignature? signature = account.find_signature(name);
+        if (signature != null) {
+            this.show_signature(signature);
+        }
+    }
+
+    private async void save_active_signature() {
+        if (!this.signature_changed ||
+            this.active_signature_name == null ||
+            !this.signature_preview.is_content_loaded) {
+            return;
+        }
+        string? name = this.active_signature_name;
+        if (name == null) {
+            return;
+        }
+        string html;
+        try {
+            html = yield this.signature_preview.get_html();
+        } catch (GLib.Error error) {
+            warning("Could not read signature: %s", error.message);
+            return;
+        }
+        if (account.set_signature_html(name, html)) {
+            this.signature_changed = false;
+            account.changed();
+        }
+    }
+
+    private void on_signature_default_toggled() {
+        if (this.switching_signature || this.active_signature_name == null) {
+            return;
+        }
+        account.set_default_signature(
+            this.signature_default_button.get_active()
+                ? this.active_signature_name
+                : ""
+        );
+        account.changed();
+    }
+
+    private void on_add_signature_clicked() {
+        var dialog = new Gtk.MessageDialog(
+            this.editor,
+            Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+            Gtk.MessageType.QUESTION,
+            Gtk.ButtonsType.NONE,
+            _("Add Signature")
+        );
+        dialog.secondary_text = _(
+            "Give this signature a name so you can choose it for an alias."
+        );
+        dialog.add_button(_("_Cancel"), Gtk.ResponseType.CANCEL);
+        dialog.add_button(_("_Add"), Gtk.ResponseType.OK);
+        var entry = new Gtk.Entry();
+        entry.set_placeholder_text(_("Signature name"));
+        entry.activates_default = true;
+        entry.show();
+        dialog.get_content_area().add(entry);
+        dialog.set_default_response(Gtk.ResponseType.OK);
+        dialog.show_all();
+        entry.grab_focus();
+
+        if (dialog.run() == Gtk.ResponseType.OK) {
+            Geary.AccountSignature signature = account.add_signature(
+                entry.get_text()
+            );
+            if (account.default_signature_name == "") {
+                account.set_default_signature(signature.name);
+            }
+            this.rebuild_signature_chooser(signature.name);
+            account.changed();
+        }
+        dialog.destroy();
+    }
+
+    private void on_remove_signature_clicked() {
+        if (this.active_signature_name == null ||
+            account.signatures.size <= 1) {
+            return;
+        }
+        string name = this.active_signature_name;
+        var dialog = new Gtk.MessageDialog(
+            this.editor,
+            Gtk.DialogFlags.MODAL | Gtk.DialogFlags.DESTROY_WITH_PARENT,
+            Gtk.MessageType.WARNING,
+            Gtk.ButtonsType.CANCEL,
+            _("Remove signature “%s”?").printf(name)
+        );
+        dialog.secondary_text = _(
+            "Aliases using this signature will use the account default instead."
+        );
+        dialog.add_button(_("_Remove"), Gtk.ResponseType.OK);
+        if (dialog.run() == Gtk.ResponseType.OK &&
+            account.remove_signature(name)) {
+            this.rebuild_signature_chooser(
+                account.default_signature_name != ""
+                    ? account.default_signature_name
+                    : account.signatures.get(0).name
+            );
+            account.changed();
+        }
+        dialog.destroy();
     }
 
     [GtkCallback]
@@ -356,21 +536,24 @@ private class Accounts.AddMailboxRow : AddRow<EditorEditPane> {
 
     public override void activated(EditorEditPane pane) {
         MailboxEditorPopover popover = new MailboxEditorPopover(
-            pane.get_default_name() ?? "", "", false
+            pane.account, pane.get_default_name() ?? "", "", false
         );
         popover.activated.connect(() => {
+                var mailbox = new Geary.RFC822.MailboxAddress(
+                    popover.display_name,
+                    popover.address
+                );
                 pane.commands.execute.begin(
                     new AppendMailboxCommand(
                         (Gtk.ListBox) get_parent(),
-                        pane.new_mailbox_row(
-                            new Geary.RFC822.MailboxAddress(
-                                popover.display_name,
-                                popover.address
-                            )
-                        )
+                        pane.new_mailbox_row(mailbox)
                     ),
                     pane.op_cancellable
                 );
+                pane.account.set_alias_signature(
+                    mailbox.address, popover.signature_name
+                );
+                pane.account.changed();
                 popover.popdown();
             });
 
@@ -383,7 +566,12 @@ private class Accounts.AddMailboxRow : AddRow<EditorEditPane> {
 private class Accounts.MailboxRow : AccountRow<EditorEditPane,Gtk.Label> {
 
 
+    private const string SIGNATURE_DEFAULT_ID = "__account_default__";
+    private const string SIGNATURE_NONE_ID = "__none__";
+
     internal Geary.RFC822.MailboxAddress mailbox;
+    private Gtk.ComboBoxText signature_choice = new Gtk.ComboBoxText();
+    private bool updating_signature_choice = false;
 
 
     public MailboxRow(Geary.AccountInformation account,
@@ -395,26 +583,52 @@ private class Accounts.MailboxRow : AccountRow<EditorEditPane,Gtk.Label> {
         this.mailbox = mailbox;
         enable_drag();
 
+        this.signature_choice.append(
+            SIGNATURE_DEFAULT_ID, _("Signature: account default")
+        );
+        this.signature_choice.append(
+            SIGNATURE_NONE_ID, _("Signature: none")
+        );
+        foreach (Geary.AccountSignature signature in account.signatures) {
+            this.signature_choice.append(
+                signature.name, _("Signature: %s").printf(signature.name)
+            );
+        }
+        this.signature_choice.set_tooltip_text(
+            _("Choose the signature used when sending as this address")
+        );
+        this.signature_choice.changed.connect(
+            on_signature_choice_changed
+        );
+        this.signature_choice.show();
+        this.layout.add(this.signature_choice);
+
         update();
     }
 
     public override void activated(EditorEditPane pane) {
         MailboxEditorPopover popover = new MailboxEditorPopover(
+            this.account,
             this.mailbox.name ?? "",
             this.mailbox.address,
             this.account.has_sender_aliases
         );
         popover.activated.connect(() => {
+                var mailbox = new Geary.RFC822.MailboxAddress(
+                    popover.display_name,
+                    popover.address
+                );
                 pane.commands.execute.begin(
                     new UpdateMailboxCommand(
                         this,
-                        new Geary.RFC822.MailboxAddress(
-                            popover.display_name,
-                            popover.address
-                        )
+                        mailbox
                     ),
                     pane.op_cancellable
                 );
+                pane.account.set_alias_signature(
+                    mailbox.address, popover.signature_name
+                );
+                pane.account.changed();
                 popover.popdown();
             });
         popover.remove_clicked.connect(() => {
@@ -422,6 +636,10 @@ private class Accounts.MailboxRow : AccountRow<EditorEditPane,Gtk.Label> {
                     new RemoveMailboxCommand(this),
                     pane.op_cancellable
                 );
+                pane.account.set_alias_signature(
+                    this.mailbox.address, null
+                );
+                pane.account.changed();
                 popover.popdown();
             });
 
@@ -443,6 +661,33 @@ private class Accounts.MailboxRow : AccountRow<EditorEditPane,Gtk.Label> {
 
         this.label.set_text(name);
         this.value.set_text(mailbox.address.strip());
+        this.updating_signature_choice = true;
+        string address = mailbox.address.down();
+        if (!account.alias_signatures.has_key(address)) {
+            this.signature_choice.set_active_id(SIGNATURE_DEFAULT_ID);
+        } else {
+            string configured =
+                account.alias_signatures.get(address) ?? "";
+            this.signature_choice.set_active_id(
+                configured == "" ? SIGNATURE_NONE_ID : configured
+            );
+        }
+        this.updating_signature_choice = false;
+    }
+
+    private void on_signature_choice_changed() {
+        if (this.updating_signature_choice) {
+            return;
+        }
+        string? selected = this.signature_choice.get_active_id();
+        string? signature_name = null;
+        if (selected == SIGNATURE_NONE_ID) {
+            signature_name = "";
+        } else if (selected != SIGNATURE_DEFAULT_ID) {
+            signature_name = selected;
+        }
+        account.set_alias_signature(mailbox.address, signature_name);
+        account.changed();
     }
 
 }
@@ -452,20 +697,26 @@ internal class Accounts.MailboxEditorPopover : EditorPopover {
 
     public string display_name { get; private set; }
     public string address { get; private set; }
+    public string? signature_name { get; private set; default = null; }
 
+
+    private const string SIGNATURE_DEFAULT_ID = "__account_default__";
+    private const string SIGNATURE_NONE_ID = "__none__";
 
     private Gtk.Entry name_entry = new Gtk.Entry();
     private Components.EntryUndo name_undo;
     private Gtk.Entry address_entry = new Gtk.Entry();
     private Components.EntryUndo address_undo;
     private Components.EmailValidator address_validator;
+    private Gtk.ComboBoxText signature_combo = new Gtk.ComboBoxText();
     private Gtk.Button remove_button;
 
     public signal void activated();
     public signal void remove_clicked();
 
 
-    public MailboxEditorPopover(string? display_name,
+    public MailboxEditorPopover(Geary.AccountInformation account,
+                                string? display_name,
                                 string? address,
                                 bool can_remove) {
         this.display_name = display_name;
@@ -503,6 +754,35 @@ internal class Accounts.MailboxEditorPopover : EditorPopover {
         this.address_validator =
             new Components.EmailValidator(this.address_entry);
 
+        this.signature_combo.append(
+            SIGNATURE_DEFAULT_ID, _("Account default")
+        );
+        this.signature_combo.append(
+            SIGNATURE_NONE_ID, _("No signature")
+        );
+        foreach (Geary.AccountSignature signature in account.signatures) {
+            this.signature_combo.append(signature.name, signature.name);
+        }
+        if (address != null &&
+            account.alias_signatures.has_key(address.down())) {
+            string configured =
+                account.alias_signatures.get(address.down()) ?? "";
+            if (configured == "") {
+                this.signature_combo.set_active_id(SIGNATURE_NONE_ID);
+            } else if (account.find_signature(configured) != null) {
+                this.signature_combo.set_active_id(configured);
+            } else {
+                this.signature_combo.set_active_id(SIGNATURE_DEFAULT_ID);
+            }
+        } else {
+            this.signature_combo.set_active_id(SIGNATURE_DEFAULT_ID);
+        }
+        this.signature_combo.set_tooltip_text(
+            _("Choose the signature inserted for this address")
+        );
+        this.signature_combo.changed.connect(on_signature_changed);
+        this.signature_combo.show();
+
         this.remove_button = new Gtk.Button.with_label(_("Remove"));
         this.remove_button.halign = Gtk.Align.END;
         this.remove_button.get_style_context().add_class(
@@ -528,9 +808,13 @@ internal class Accounts.MailboxEditorPopover : EditorPopover {
             _("Email address"),
             this.address_entry
         );
+        add_labelled_row(
+            _("Signature"),
+            this.signature_combo
+        );
 
         if (can_remove) {
-            this.layout.attach(this.remove_button, 0, 2, 2, 1);
+            this.layout.attach(this.remove_button, 0, 3, 2, 1);
         }
 
         this.popup_focus = this.name_entry;
@@ -543,6 +827,7 @@ internal class Accounts.MailboxEditorPopover : EditorPopover {
         this.address_entry.changed.disconnect(on_address_changed);
         this.address_entry.activate.disconnect(on_activate);
 
+        this.signature_combo.changed.disconnect(on_signature_changed);
         this.remove_button.clicked.disconnect(on_remove_clicked);
     }
 
@@ -552,6 +837,17 @@ internal class Accounts.MailboxEditorPopover : EditorPopover {
 
     private void on_address_changed() {
         this.address = this.address_entry.get_text().strip();
+    }
+
+    private void on_signature_changed() {
+        string? id = this.signature_combo.get_active_id();
+        if (id == SIGNATURE_DEFAULT_ID) {
+            this.signature_name = null;
+        } else if (id == SIGNATURE_NONE_ID) {
+            this.signature_name = "";
+        } else {
+            this.signature_name = id;
+        }
     }
 
     private void on_remove_clicked() {

@@ -224,14 +224,38 @@ ComposerPageState.prototype = {
         document.execCommand("insertUnorderedList", false, null);
     },
     updateSignature: function(signature) {
-        if (this.signaturePart != null) {
-            if (signature.trim()) {
-                this.signaturePart.innerHTML = signature;
-                this.signaturePart.classList.remove("geary-no-display");
+        if (!signature.trim() && this.signaturePart == null) {
+            return;
+        }
+
+        // The user can delete the signature block. Recreate it when a
+        // signature is selected later so the selected row matches the body.
+        if (this.signaturePart == null) {
+            let part = document.createElement("div");
+            part.id = "geary-signature";
+            part.contentEditable = true;
+
+            if (this.quotePart != null && this.quotePart.parentNode != null) {
+                this.quotePart.parentNode.insertBefore(part, this.quotePart);
+            } else if (this.bodyPart != null &&
+                       this.bodyPart.parentNode != null &&
+                       this.bodyPart != document.body) {
+                this.bodyPart.parentNode.insertBefore(
+                    part, this.bodyPart.nextSibling
+                );
             } else {
-                this.signaturePart.innerHTML = "";
-                this.signaturePart.classList.add("geary-no-display");
+                document.body.appendChild(part);
             }
+            this.signaturePart = part;
+            ComposerPageState.linkify(this.signaturePart);
+        }
+
+        if (signature.trim()) {
+            this.signaturePart.innerHTML = signature;
+            this.signaturePart.classList.remove("geary-no-display");
+        } else {
+            this.signaturePart.innerHTML = "";
+            this.signaturePart.classList.add("geary-no-display");
         }
     },
     deleteQuotedMessage: function() {

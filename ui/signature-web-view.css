@@ -1,0 +1,16 @@
+html,
+body {
+  min-height: 150px;
+  box-sizing: border-box;
+}
+
+body {
+  cursor: text;
+  padding: 8px;
+}
+
+body:empty::before {
+  content: "Click here and type the signature text";
+  color: alpha(currentColor, 0.55);
+  pointer-events: none;
+}

@@ -3810,6 +3810,88 @@ msgstr "_Запомнить пароль"
 msgid "_Authenticate"
 msgstr "_Авторизоваться"
 
+#: ui/accounts_editor_edit_pane.ui
+msgid "Select the signature to edit"
+msgstr "Выберите подпись для редактирования"
+
+#: ui/accounts_editor_edit_pane.ui
+msgid "Add another signature"
+msgstr "Добавить ещё одну подпись"
+
+#: ui/accounts_editor_edit_pane.ui
+msgid "Remove this signature"
+msgstr "Удалить эту подпись"
+
+#: ui/accounts_editor_edit_pane.ui
+msgid "Use this signature by default"
+msgstr "Использовать эту подпись по умолчанию"
+
+#: ui/accounts_editor_edit_pane.ui
+msgid "Use this signature for new messages unless an alias chooses another"
+msgstr "Использовать эту подпись для новых писем, если для алиаса не выбрана другая"
+
+#: ui/accounts_editor_edit_pane.ui
+msgid "Signature text"
+msgstr "Текст подписи"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Add Signature"
+msgstr "Добавить подпись"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Give this signature a name so you can choose it for an alias."
+msgstr "Задайте имя подписи, чтобы выбрать её для алиаса."
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Signature name"
+msgstr "Имя подписи"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+#, c-format
+msgid "Remove signature “%s”?"
+msgstr "Удалить подпись «%s»?"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Aliases using this signature will use the account default instead."
+msgstr "Для алиасов с этой подписью будет использоваться подпись аккаунта по умолчанию."
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Account default"
+msgstr "Как у аккаунта"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "No signature"
+msgstr "Без подписи"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Choose the signature inserted for this address"
+msgstr "Выберите подпись для писем с этого адреса"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Signature: account default"
+msgstr "Подпись: как у аккаунта"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Signature: none"
+msgstr "Подпись: нет"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+#, c-format
+msgid "Signature: %s"
+msgstr "Подпись: %s"
+
+#: src/client/accounts/accounts-editor-edit-pane.vala
+msgid "Choose the signature used when sending as this address"
+msgstr "Выберите подпись для писем с этого адреса"
+
+#: src/client/composer/composer-widget.vala
+msgid "Si_gnature"
+msgstr "_Подпись"
+
+#: src/client/composer/composer-widget.vala
+msgid "No Signature"
+msgstr "Без подписи"
+
 #, c-format
 #~ msgid "Email to %s saved"
 #~ msgstr "Письмо до %s сохранено"
