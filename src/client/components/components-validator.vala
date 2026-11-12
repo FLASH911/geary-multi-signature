@@ -485,8 +485,13 @@ public class Components.NetworkAddressValidator : Validator {
                         } catch (GLib.IOError.CANCELLED err) {
                             this.validated_address = null;
                         } catch (GLib.Error err) {
-                            this.validated_address = null;
-                            update_state(Validator.Validity.INVALID, reason);
+                            // DNS can be temporarily unavailable, cached
+                            // inconsistently, or delegated to a resolver the
+                            // application cannot query. A parseable host must
+                            // not be a hard setup blocker: the subsequent
+                            // IMAP/SMTP connection is the authoritative test.
+                            this.validated_address = address;
+                            update_state(Validator.Validity.VALID, reason);
                         }
                         this.cancellable = null;
                     }
