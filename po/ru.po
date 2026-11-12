@@ -3892,6 +3892,16 @@ msgstr "_Подпись"
 msgid "No Signature"
 msgstr "Без подписи"
 
+#: src/client/accounts/accounts-editor-add-pane.vala
+#, c-format
+msgid "Receiving server error: %s"
+msgstr "Ошибка сервера получения: %s"
+
+#: src/client/accounts/accounts-editor-add-pane.vala
+#, c-format
+msgid "Sending server error: %s"
+msgstr "Ошибка сервера отправки: %s"
+
 #, c-format
 #~ msgid "Email to %s saved"
 #~ msgstr "Письмо до %s сохранено"

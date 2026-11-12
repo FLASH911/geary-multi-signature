@@ -179,7 +179,9 @@ internal class Accounts.EditorAddPane : Gtk.Grid, EditorPane {
                 this.imap_tls.show();
                 to_focus = this.imap_hostname.value;
                 // Translators: In-app notification label
-                message = _("Check your receiving server details");
+                message = _("Receiving server error: %s").printf(
+                    err.message
+                );
             }
 
             if (imap_valid) {
@@ -215,7 +217,9 @@ internal class Accounts.EditorAddPane : Gtk.Grid, EditorPane {
                     this.smtp_tls.show();
                     to_focus = this.smtp_hostname.value;
                     // Translators: In-app notification label
-                    message = _("Check your sending server details");
+                    message = _("Sending server error: %s").printf(
+                        err.message
+                    );
                 }
             }
 
