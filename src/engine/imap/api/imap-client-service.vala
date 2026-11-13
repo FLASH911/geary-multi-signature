@@ -92,6 +92,15 @@ public class Geary.Imap.ClientService : Geary.ClientService {
     public int max_free_size { get; set; default = DEFAULT_MAX_FREE_SIZE; }
 
     /**
+     * Specifies the maximum number of open sessions.
+     *
+     * Zero or a negative value leaves the total number of active and free
+     * sessions unlimited. Servers with a low per-account concurrency limit
+     * can set this to keep Geary from exhausting it.
+     */
+    public int max_pool_size { get; set; default = 0; }
+
+    /**
      * Determines if returned sessions should be kept or discarded.
      */
     public bool discard_returned_sessions = false;
@@ -111,6 +120,7 @@ public class Geary.Imap.ClientService : Geary.ClientService {
 
     private GLib.Cancellable? pool_cancellable = null;
     private GLib.Cancellable? close_cancellable = null;
+    private int sessions_creating = 0;
 
 
     public ClientService(AccountInformation account,
@@ -315,9 +325,18 @@ public class Geary.Imap.ClientService : Geary.ClientService {
         if (needed <= 0 && is_claiming) {
             needed = 1;
         }
+        if (this.max_pool_size > 0) {
+            int available = (
+                this.max_pool_size -
+                this.all_sessions.size -
+                this.sessions_creating
+            );
+            needed = int.min(needed, int.max(available, 0));
+        }
 
         // Open as many as needed in parallel
         while (needed > 0) {
+            this.sessions_creating++;
             add_pool_session.begin();
             needed--;
         }
@@ -346,6 +365,7 @@ public class Geary.Imap.ClientService : Geary.ClientService {
             notify_connection_failed(context);
         }
 
+        this.sessions_creating--;
         if (new_session == null) {
             // An error was thrown, so close the pool
             this.close_pool.begin(true);

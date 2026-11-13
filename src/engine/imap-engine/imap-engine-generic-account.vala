@@ -12,6 +12,9 @@ private abstract class Geary.ImapEngine.GenericAccount : Geary.Account {
     /** Default IMAP session pool size. */
     private const int IMAP_MIN_POOL_SIZE = 2;
 
+    /** Keep well below the common per-account server concurrency limits. */
+    private const int IMAP_MAX_POOL_SIZE = 4;
+
     // This is high since it's an expensive operation, and we'll go
     // looking changes caused by local operations as they happen, so
     // we don't need to double check.
@@ -86,6 +89,7 @@ private abstract class Geary.ImapEngine.GenericAccount : Geary.Account {
         this.contact_store = new ContactStoreImpl(local.db);
 
         imap.min_pool_size = IMAP_MIN_POOL_SIZE;
+        imap.max_pool_size = IMAP_MAX_POOL_SIZE;
         imap.notify["current-status"].connect(
             on_imap_status_notify
         );
