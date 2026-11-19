@@ -326,7 +326,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.Folder, Geary.FolderSupport
                 yield remote.send_noop(cancellable);
                 have_nooped = true;
             } catch (GLib.Error err) {
-                retries =- 1;
+                retries -= 1;
                 if (is_recoverable_failure(err) && retries > 0) {
                     // XXX In theory we should be able to just retry
                     // this immediately, but there's a race between
@@ -336,10 +336,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.Folder, Geary.FolderSupport
                     // reties and set a timeout to help aid recovery.
                     debug("Recoverable error during remote sync: %s",
                           err.message);
-                    GLib.Timeout.add_seconds(
-                        1, this.synchronise_remote.callback
-                    );
-                    yield;
+                    yield Geary.Scheduler.sleep_async(1);
                 } else {
                     throw err;
                 }
