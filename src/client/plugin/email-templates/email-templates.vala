@@ -37,6 +37,7 @@ public class Plugin.EmailTemplates :
     private const string ACTION_NEW = "new-template";
     private const string ACTION_EDIT = "edit-template";
     private const string ACTION_SEND = "send-template";
+    private const string ACTION_INSERT = "insert-template";
 
     private const int INFO_BAR_PRIORITY = 0;
 
@@ -83,6 +84,9 @@ public class Plugin.EmailTemplates :
 
         this.email_store = yield this.email.get_email_store();
         this.email_store.email_displayed.connect(on_email_displayed);
+        this.plugin_application.composer_registered.connect(
+            on_composer_registered
+        );
 
         this.new_action = new GLib.SimpleAction(
             ACTION_NEW, this.folder_store.folder_variant_type
@@ -133,6 +137,9 @@ public class Plugin.EmailTemplates :
 
         this.email_store.email_displayed.disconnect(on_email_displayed);
         this.email_store = null;
+        this.plugin_application.composer_registered.disconnect(
+            on_composer_registered
+        );
     }
 
     private async void edit_email(Folder? target, EmailIdentifier? id, bool send) {
@@ -365,6 +372,71 @@ public class Plugin.EmailTemplates :
 
     private void on_email_displayed(Email email) {
         this.update_email.begin(email);
+    }
+
+    private void on_composer_registered(Composer composer) {
+        this.update_composer.begin(composer);
+    }
+
+    private async void update_composer(Composer composer) {
+        if (this.folder_store == null || composer.sender_context == null) {
+            return;
+        }
+
+        var templates = new Gee.ArrayList<Email>();
+        foreach (Folder folder in this.folder_store.get_folders()) {
+            if (folder.display_name in this.folder_names) {
+                try {
+                    templates.add_all(
+                        yield folder.list_email(this.cancellable)
+                    );
+                } catch (GLib.Error err) {
+                    warning(
+                        "Could not list templates in %s: %s",
+                        folder.persistent_id,
+                        err.message
+                    );
+                }
+            }
+        }
+
+        templates.sort((a, b) => {
+                string a_name = a.subject?.value ?? "";
+                string b_name = b.subject?.value ?? "";
+                return a_name.collate(b_name);
+            });
+
+        uint index = 0;
+        foreach (Email template in templates) {
+            string label = template.subject?.value ?? _("Untitled Template");
+            Email selected = template;
+            var action = new GLib.SimpleAction(
+                "%s-%u".printf(ACTION_INSERT, index++), null
+            );
+            action.activate.connect(() => {
+                    this.insert_template.begin(composer, selected);
+                });
+            composer.register_action(action);
+            composer.append_menu_item(
+                new Actionable(
+                    _("Insert Template: %s").printf(label),
+                    action
+                )
+            );
+        }
+    }
+
+    private async void insert_template(Composer composer, Email template) {
+        try {
+            string body = yield template.load_body_as(
+                Email.BodyType.HTML,
+                true,
+                this.cancellable
+            );
+            composer.insert_text(body);
+        } catch (GLib.Error err) {
+            warning("Could not insert template: %s", err.message);
+        }
     }
 
 }

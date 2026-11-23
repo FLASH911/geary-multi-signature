@@ -3892,6 +3892,14 @@ msgstr "_Подпись"
 msgid "No Signature"
 msgstr "Без подписи"
 
+#: src/client/plugin/email-templates/email-templates.vala
+msgid "Insert Template: %s"
+msgstr "Вставить шаблон: %s"
+
+#: src/client/plugin/email-templates/email-templates.vala
+msgid "Untitled Template"
+msgstr "Шаблон без названия"
+
 #: src/client/accounts/accounts-editor-add-pane.vala
 #, c-format
 msgid "Receiving server error: %s"

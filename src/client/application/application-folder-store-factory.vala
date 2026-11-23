@@ -141,6 +141,53 @@ internal class Application.FolderStoreFactory : Geary.BaseObject {
             });
         }
 
+        public async Gee.Collection<Plugin.Email> list_email(
+            GLib.Cancellable? cancellable
+        ) throws GLib.Error {
+            Geary.Folder folder = this.backing.folder;
+            bool opened = folder.get_open_state() == Geary.Folder.OpenState.CLOSED;
+            if (opened) {
+                yield folder.open_async(Geary.Folder.OpenFlags.NO_DELAY, cancellable);
+            }
+
+            Gee.List<Geary.Email>? messages = null;
+            try {
+                messages = yield folder.list_email_by_id_async(
+                    null,
+                    int.MAX,
+                    Geary.Email.Field.SUBJECT |
+                        Geary.Email.Field.FLAGS,
+                    Geary.Folder.ListFlags.NONE,
+                    cancellable
+                );
+            } catch (GLib.Error err) {
+                if (opened) {
+                    yield folder.close_async(null);
+                }
+                throw err;
+            }
+
+            if (opened) {
+                yield folder.close_async(null);
+            }
+
+            var result = new Gee.ArrayList<Plugin.Email>();
+            if (messages != null) {
+                var plugin_account =
+                    this.account as PluginManager.AccountImpl;
+                foreach (Geary.Email message in messages) {
+                    if (plugin_account != null) {
+                        result.add(
+                            new EmailStoreFactory.EmailImpl(
+                                message, plugin_account
+                            )
+                        );
+                    }
+                }
+            }
+            return result;
+        }
+
         internal void folder_type_changed() {
             notify_property("used-as");
             notify_property("display-name");

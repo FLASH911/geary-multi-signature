@@ -30,6 +30,16 @@ public interface Plugin.Folder : Geary.BaseObject {
     public abstract Account? account { get; }
 
     /**
+     * Lists the messages in this folder.
+     *
+     * Headers and flags are loaded. Message bodies are loaded on demand
+     * through {@link Email.load_body_as}.
+     */
+    public abstract async Gee.Collection<Email> list_email(
+        GLib.Cancellable? cancellable
+    ) throws GLib.Error;
+
+    /**
      * Returns a variant identifying this account and folder.
      *
      * This value can be used to obtain folders from {@link
