@@ -61,6 +61,10 @@ This is the second line.
         add_test("get_searchable_body", get_searchable_body);
         add_test("get_searchable_recipients", get_searchable_recipients);
         add_test("from_composed_email", from_composed_email);
+        add_test(
+            "from_composed_email_uses_utf8",
+            from_composed_email_uses_utf8
+        );
         add_test("from_composed_email_inline_attachments", from_composed_email_inline_attachments);
         add_test("get_rfc822_buffer", get_rfc822_buffer);
         add_test("get_rfc822_buffer_dot_stuff", get_rfc822_buffer_dot_stuff);
@@ -385,6 +389,40 @@ This is the second line.
         assert_true(
             message_data.contains("hello\n"),
             "body data"
+        );
+    }
+
+    public void from_composed_email_uses_utf8() throws GLib.Error {
+        RFC822.MailboxAddress to = new RFC822.MailboxAddress(
+            "Получатель", "test@example.com"
+        );
+        RFC822.MailboxAddress from = new RFC822.MailboxAddress(
+            "Отправитель", "sender@example.com"
+        );
+        Geary.ComposedEmail composed = new Geary.ComposedEmail(
+            new GLib.DateTime.now_local(),
+            new Geary.RFC822.MailboxAddresses.single(from)
+        ).set_to(new Geary.RFC822.MailboxAddresses.single(to));
+        composed.body_text = "Добрый день. Проверка кириллицы.";
+        composed.body_html = "<p>Добрый день. Проверка кириллицы.</p>";
+
+        this.message_from_composed_email.begin(
+            composed,
+            this.async_completion
+        );
+        Geary.RFC822.Message message =
+            message_from_composed_email.end(async_result());
+
+        string message_data = message.to_string();
+        assert_true(
+            "charset=UTF-8" in message_data ||
+                "charset=utf-8" in message_data,
+            "Expected UTF-8 MIME charset"
+        );
+        assert_false(
+            "windows-1251" in message_data.ascii_down() ||
+                "koi8-u" in message_data.ascii_down(),
+            "Expected no legacy Cyrillic charset"
         );
     }
 

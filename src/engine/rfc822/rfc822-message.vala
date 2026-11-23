@@ -1207,11 +1207,14 @@ public class Geary.RFC822.Message : BaseObject, EmailHeaderSet {
                                                GLib.Cancellable? cancellable)
         throws GLib.Error {
         GMime.Stream content_stream = new GMime.StreamMem.with_buffer(content);
-        if (charset == null) {
-            charset = yield Utils.get_best_charset(content_stream, cancellable);
-        }
+        // Outgoing text is already UTF-8. Letting GMime choose a legacy
+        // charset for Cyrillic produces windows-1251/KOI8-U messages that
+        // some recipients display as mojibake. Always declare UTF-8.
+        charset = UTF8_CHARSET;
         GMime.StreamFilter filter_stream = new GMime.StreamFilter(content_stream);
-        filter_stream.add(new GMime.FilterCharset(UTF8_CHARSET, charset));
+        if (!is_utf_8(charset)) {
+            filter_stream.add(new GMime.FilterCharset(UTF8_CHARSET, charset));
+        }
 
         GMime.ContentEncoding encoding = yield Utils.get_best_encoding(
             filter_stream,
