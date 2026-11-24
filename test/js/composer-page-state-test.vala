@@ -28,6 +28,7 @@ class Composer.PageStateTest : Components.WebViewTestCase<Composer.WebView> {
         add_test("clean_content", clean_content);
         add_test("get_html", get_html);
         add_test("get_text", get_text);
+        add_test("template_content", template_content);
         add_test("contains_keywords", contains_keywords);
         // Depends contains_keywords and html_to_text_with_blacklist
         add_test("contains_attachment_keywords", contains_attachment_keywords);
@@ -291,6 +292,43 @@ I can send email through smtp.gmail.com:587 or through <a href="https://www.gmai
 
                 ) == "para\n\n\n\n"
             );
+        } catch (Util.JS.Error err) {
+            print("Util.JS.Error: %s\n", err.message);
+            assert_not_reached();
+        } catch (Error err) {
+            print("WKError: %s\n", err.message);
+            assert_not_reached();
+        }
+    }
+
+    public void template_content() throws Error {
+        string markup = (
+            "<div id=\"geary-body\" dir=\"auto\">" +
+            "<div>template text</div>" +
+            "<a href=\"https://example.com\">link</a>" +
+            "</div>" +
+            "<div id=\"geary-signature\">signature</div>" +
+            "<div id=\"geary-quote\">quote</div>"
+        );
+        string js_markup = (
+            markup
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "\\n")
+        );
+        try {
+            string content = Util.JS.to_string(
+                run_javascript(
+                    @"ComposerPageState.getTemplateContent('$js_markup')"
+                )
+            );
+            assert(content.contains("<div>template text</div>"));
+            assert(content.contains(
+                "<a href=\"https://example.com\">link</a>"
+            ));
+            assert(!content.contains("geary-body"));
+            assert(!content.contains("geary-signature"));
+            assert(!content.contains("geary-quote"));
         } catch (Util.JS.Error err) {
             print("Util.JS.Error: %s\n", err.message);
             assert_not_reached();

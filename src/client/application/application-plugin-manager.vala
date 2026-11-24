@@ -425,6 +425,10 @@ public class Application.PluginManager : GLib.Object {
             }
         }
 
+        public void insert_html(string markup) {
+            this.backing.editor.body.insert_template(markup);
+        }
+
         public void register_action(GLib.Action action) {
             if (this.action_group == null) {
                 this.action_group = new GLib.SimpleActionGroup();

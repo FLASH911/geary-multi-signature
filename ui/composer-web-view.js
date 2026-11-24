@@ -258,6 +258,21 @@ ComposerPageState.prototype = {
             this.signaturePart.classList.add("geary-no-display");
         }
     },
+    getTemplateContent: function(markup) {
+        let parsedDocument = new DOMParser().parseFromString(
+            markup, "text/html"
+        );
+        let body = parsedDocument.getElementById("geary-body");
+        if (body != null) {
+            markup = body.innerHTML;
+        }
+        return markup;
+    },
+    insertTemplate: function(markup) {
+        document.execCommand(
+            "insertHTML", false, this.getTemplateContent(markup)
+        );
+    },
     deleteQuotedMessage: function() {
         if (this.quotePart != null) {
             this.quotePart.parentNode.removeChild(this.quotePart);

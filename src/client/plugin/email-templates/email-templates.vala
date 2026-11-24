@@ -433,7 +433,7 @@ public class Plugin.EmailTemplates :
                 true,
                 this.cancellable
             );
-            composer.insert_text(body);
+            composer.insert_html(body);
         } catch (GLib.Error err) {
             warning("Could not insert template: %s", err.message);
         }

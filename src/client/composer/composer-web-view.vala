@@ -333,6 +333,18 @@ public class Composer.WebView : Components.WebView {
     }
 
     /**
+     * Inserts template body content at the current cursor location.
+     *
+     * This strips Geary's message body and signature wrappers so only
+     * the template's editable content is inserted.
+     */
+    public void insert_template(string markup) {
+        this.call_void.begin(
+            Util.JS.callable("insertTemplate").string(markup), null
+        );
+    }
+
+    /**
      * Inserts or updates an A element at the current text cursor location.
      *
      * If the cursor is located on an A element, the element's HREF

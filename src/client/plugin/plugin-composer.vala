@@ -95,6 +95,14 @@ public interface Plugin.Composer : Geary.BaseObject {
     public abstract void insert_text(string plain_text);
 
     /**
+     * Inserts HTML at the current cursor position.
+     *
+     * If the given markup contains Geary's message body wrapper, only
+     * the contents of that wrapper are inserted.
+     */
+    public abstract void insert_html(string markup);
+
+    /**
      * Sets the folder used to save the message being composed.
      *
      * Ensures email for both automatic and manual saving of the email
